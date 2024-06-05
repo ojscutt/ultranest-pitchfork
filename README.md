@@ -30,4 +30,4 @@ emulating individual modes of solar like oscillators for use in fundamental para
 │   ├── ultranest-sampler.py\
 │   └── ...\
 ├── LICENSE\
-└── README.md\
+└── README.md
