@@ -2,6 +2,7 @@ import pickle
 import numpy as np
 import tensorflow as tf
 import os
+import gc
 
 import ultranest
 import scipy
@@ -222,8 +223,22 @@ class ultra_ns_vector_nice():
         return self.logl_scale * ll
     
     def __call__(self, ndraw_min, ndraw_max):
+
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+            gc.collect()
+
+        
         self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max)
+        
         return self.sampler
+
+    def cleanup(self):
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+        if hasattr(self, 'pitchfork'):
+            del self.pitchfork
+        gc.collect()
 
 class ultra_ns_vector_naughty():
     def __init__(self, priors, observed_vals, pitchfork, sigma_inv, n_min=6, n_max=40, logl_scale = 1):
