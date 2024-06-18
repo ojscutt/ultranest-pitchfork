@@ -12,6 +12,14 @@ from scipy import constants
 from scipy import stats
 import astropy.constants
 
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
+physical_devices = tf.config.list_physical_devices("GPU") 
+
+tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
+gpu0usage = tf.config.experimental.get_memory_info("GPU:0")["current"]
+
 class InversePCA(tf.keras.layers.Layer):
     """
     Inverse PCA layer for tensorflow neural network
@@ -224,14 +232,14 @@ class ultra_ns_vector_nice():
 
         return self.logl_scale * ll
     
-    def __call__(self, ndraw_min, ndraw_max):
+    def __call__(self, ndraw_min, ndraw_max, draw_multiple=True):
 
         if hasattr(self, 'sampler') and self.sampler is not None:
             del self.sampler
             gc.collect()
 
         
-        self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max)
+        self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max, draw_multiple=draw_multiple)
         
         return self.sampler
 
@@ -240,7 +248,10 @@ class ultra_ns_vector_nice():
             del self.sampler
         if hasattr(self, 'pitchfork'):
             del self.pitchfork
+
+        tf.keras.backend.clear_session()
         gc.collect()
+
 
 # class ultra_ns_vector_slice():
 #     def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, n_min=6, n_max=40, logl_scale = 1):
