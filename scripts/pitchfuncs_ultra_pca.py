@@ -6,19 +6,12 @@ import gc
 
 import ultranest
 import ultranest.stepsampler
+import ultranest.popstepsampler
 import ultranest.calibrator
 import scipy
 from scipy import constants
 from scipy import stats
 import astropy.constants
-
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
-
-physical_devices = tf.config.list_physical_devices("GPU") 
-
-tf.config.experimental.set_memory_growth(physical_devices[0], True)
-
-gpu0usage = tf.config.experimental.get_memory_info("GPU:0")["current"]
 
 class InversePCA(tf.keras.layers.Layer):
     """
@@ -252,57 +245,198 @@ class ultra_ns_vector_nice():
         tf.keras.backend.clear_session()
         gc.collect()
 
-
-# class ultra_ns_vector_slice():
-#     def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, n_min=6, n_max=40, logl_scale = 1):
-#         self.priors = priors
-#         self.obs_val = observed_vals
-#         self.ndim = len(priors)
-#         self.pitchfork = pitchfork
-#         self.logl_scale = logl_scale
-#         self.logl_factor = -(len(observed_vals)*0.5*np.log(2*np.pi))-(0.5*log_sigma_det)
-#         self.sigma_inv = sigma_inv
-#         self.n_min = n_min
-#         self.n_max = n_max
+class ultra_ns_vector_simpleslice():
+    def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, n_min=6, n_max=40, logl_scale = 1):
+        self.priors = priors
+        self.obs_val = observed_vals
+        self.ndim = len(priors)
+        self.pitchfork = pitchfork
+        self.logl_scale = logl_scale
+        self.logl_factor = -(len(observed_vals)*0.5*np.log(2*np.pi))-(0.5*log_sigma_det)
+        self.sigma_inv = sigma_inv
+        self.n_min = n_min
+        self.n_max = n_max
     
-#     def ptform(self, u):
+    def ptform(self, u):
 
-#         theta = np.array([self.priors[i].ppf(u[:,i]) for i in range(self.ndim)]).T
-#         return theta
+        theta = np.array([self.priors[i].ppf(u[:,i]) for i in range(self.ndim)]).T
+        return theta
         
     
-#     def logl(self, theta): 
-#         m = self.pitchfork.predict(theta, n_min=self.n_min, n_max=self.n_max)
+    def logl(self, theta): 
+        m = self.pitchfork.predict(theta, n_min=self.n_min, n_max=self.n_max)
 
-#         residual_matrix = np.matrix(m-self.obs_val)
+        residual_matrix = np.matrix(m-self.obs_val)
 
-#         ll = self.logl_factor-0.5*np.einsum('ij, jk, ik->i', residual_matrix, self.sigma_inv, residual_matrix)
+        ll = self.logl_factor-0.5*np.einsum('ij, jk, ik->i', residual_matrix, self.sigma_inv, residual_matrix)
 
-#         return self.logl_scale * ll
+        return self.logl_scale * ll
     
-#     def __call__(self, ndraw_min, ndraw_max):
-
-#         if hasattr(self, 'sampler') and self.sampler is not None:
-#             del self.sampler
-#             gc.collect()
-
+    def __call__(self, ndraw_min, ndraw_max, draw_multiple=True, nsteps=10, popsize=400):
         
-#         self.sampler = ultranest.calibrator.ReactiveNestedCalibrator(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max)
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+            gc.collect()
 
+        self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max, draw_multiple=draw_multiple)
 
-#         nsteps = 2 * len(self.priors)
+        self.sampler.stepsampler = ultranest.popstepsampler.PopulationSimpleSliceSampler(popsize=popsize, nsteps=nsteps, generate_direction=ultranest.popstepsampler.generate_mixture_random_direction)
         
-#         self.sampler.stepsampler = ultranest.stepsampler.SliceSampler(nsteps=nsteps, generate_direction=ultranest.stepsampler.generate_mixture_random_direction)
+        return self.sampler
+
+    def cleanup(self):
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+        if hasattr(self, 'pitchfork'):
+            del self.pitchfork
+
+        tf.keras.backend.clear_session()
+        gc.collect()
+
+class ultra_ns_vector_slice():
+    def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, n_min=6, n_max=40, logl_scale = 1):
+        self.priors = priors
+        self.obs_val = observed_vals
+        self.ndim = len(priors)
+        self.pitchfork = pitchfork
+        self.logl_scale = logl_scale
+        self.logl_factor = -(len(observed_vals)*0.5*np.log(2*np.pi))-(0.5*log_sigma_det)
+        self.sigma_inv = sigma_inv
+        self.n_min = n_min
+        self.n_max = n_max
+    
+    def ptform(self, u):
+
+        theta = np.array([self.priors[i].ppf(u[:,i]) for i in range(self.ndim)]).T
+        return theta
         
-#         return self.sampler
+    
+    def logl(self, theta): 
+        m = self.pitchfork.predict(theta, n_min=self.n_min, n_max=self.n_max)
 
-#     def cleanup(self):
-#         if hasattr(self, 'sampler') and self.sampler is not None:
-#             del self.sampler
-#         if hasattr(self, 'pitchfork'):
-#             del self.pitchfork
-#         gc.collect()
+        residual_matrix = np.matrix(m-self.obs_val)
 
+        ll = self.logl_factor-0.5*np.einsum('ij, jk, ik->i', residual_matrix, self.sigma_inv, residual_matrix)
+
+        return self.logl_scale * ll
+    
+    def __call__(self, ndraw_min, ndraw_max, draw_multiple=True, nsteps=10, popsize=400):
+        
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+            gc.collect()
+
+        self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max, draw_multiple=draw_multiple)
+
+        self.sampler.stepsampler = ultranest.popstepsampler.PopulationSliceSampler(popsize=popsize, nsteps=nsteps, generate_direction=ultranest.popstepsampler.generate_mixture_random_direction)
+        
+        return self.sampler
+
+    def cleanup(self):
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+        if hasattr(self, 'pitchfork'):
+            del self.pitchfork
+
+        tf.keras.backend.clear_session()
+        gc.collect()
+
+class ultra_ns_vector_stepslice():
+    def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, n_min=6, n_max=40, logl_scale = 1):
+        self.priors = priors
+        self.obs_val = observed_vals
+        self.ndim = len(priors)
+        self.pitchfork = pitchfork
+        self.logl_scale = logl_scale
+        self.logl_factor = -(len(observed_vals)*0.5*np.log(2*np.pi))-(0.5*log_sigma_det)
+        self.sigma_inv = sigma_inv
+        self.n_min = n_min
+        self.n_max = n_max
+    
+    def ptform(self, u):
+
+        theta = np.array([self.priors[i].ppf(u[:,i]) for i in range(self.ndim)]).T
+        return theta
+        
+    
+    def logl(self, theta): 
+        m = self.pitchfork.predict(theta, n_min=self.n_min, n_max=self.n_max)
+
+        residual_matrix = np.matrix(m-self.obs_val)
+
+        ll = self.logl_factor-0.5*np.einsum('ij, jk, ik->i', residual_matrix, self.sigma_inv, residual_matrix)
+
+        return self.logl_scale * ll
+    
+    def __call__(self, ndraw_min, ndraw_max, draw_multiple=True, nsteps=10, popsize=400):
+        
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+            gc.collect()
+
+        self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max, draw_multiple=draw_multiple)
+
+        self.sampler.stepsampler = ultranest.stepsampler.PopulationSliceSampler(popsize=popsize, nsteps=nsteps, generate_direction=ultranest.stepsampler.generate_mixture_random_direction)
+        
+        return self.sampler
+
+    def cleanup(self):
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+        if hasattr(self, 'pitchfork'):
+            del self.pitchfork
+
+        tf.keras.backend.clear_session()
+        gc.collect()
+
+class ultra_ns_vector_walk():
+    def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, n_min=6, n_max=40, logl_scale = 1):
+        self.priors = priors
+        self.obs_val = observed_vals
+        self.ndim = len(priors)
+        self.pitchfork = pitchfork
+        self.logl_scale = logl_scale
+        self.logl_factor = -(len(observed_vals)*0.5*np.log(2*np.pi))-(0.5*log_sigma_det)
+        self.sigma_inv = sigma_inv
+        self.n_min = n_min
+        self.n_max = n_max
+    
+    def ptform(self, u):
+
+        theta = np.array([self.priors[i].ppf(u[:,i]) for i in range(self.ndim)]).T
+        return theta
+        
+    
+    def logl(self, theta): 
+        m = self.pitchfork.predict(theta, n_min=self.n_min, n_max=self.n_max)
+
+        residual_matrix = np.matrix(m-self.obs_val)
+
+        ll = self.logl_factor-0.5*np.einsum('ij, jk, ik->i', residual_matrix, self.sigma_inv, residual_matrix)
+
+        return self.logl_scale * ll
+    
+    def __call__(self, ndraw_min, ndraw_max, draw_multiple=True, nsteps=10, popsize=400, scale=1):
+        
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+            gc.collect()
+
+        self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max, draw_multiple=draw_multiple)
+
+        self.sampler.stepsampler = ultranest.popstepsampler.PopulationRandomWalkSampler(popsize=popsize, nsteps=nsteps, scale=scale, generate_direction=ultranest.popstepsampler.generate_mixture_random_direction)
+        
+        return self.sampler
+
+    def cleanup(self):
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+        if hasattr(self, 'pitchfork'):
+            del self.pitchfork
+
+        tf.keras.backend.clear_session()
+        gc.collect()
+        
 class ultra_ns_vector_naughty():
     def __init__(self, priors, observed_vals, pitchfork, sigma_inv, n_min=6, n_max=40, logl_scale = 1):
         self.priors = priors
