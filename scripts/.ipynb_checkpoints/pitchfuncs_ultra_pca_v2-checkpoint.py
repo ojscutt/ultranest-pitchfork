@@ -5,6 +5,10 @@ import os
 import gc
 
 import ultranest
+
+import logging
+logging.getLogger('ultranest').setLevel(logging.WARNING)
+
 import ultranest.stepsampler
 import ultranest.popstepsampler
 import ultranest.calibrator
@@ -224,6 +228,8 @@ class ultra_ns_gp():
         b_arr = np.expand_dims(theta[:,-1],1)
 
         gp_samples = gp.sample(jax.random.PRNGKey(np.random.randint(1e15)), shape=(len(b_arr),))
+
+        scaled_samples =  - self.surf_corr(gp)
         
         m[:,3:] = self.surf_corr(m[:,3:],a_arr, b_arr)
         

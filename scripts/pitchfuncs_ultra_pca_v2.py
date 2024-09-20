@@ -5,6 +5,10 @@ import os
 import gc
 
 import ultranest
+
+import logging
+logging.getLogger('ultranest').setLevel(logging.WARNING)
+
 import ultranest.stepsampler
 import ultranest.popstepsampler
 import ultranest.calibrator
