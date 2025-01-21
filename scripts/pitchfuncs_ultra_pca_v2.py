@@ -136,7 +136,45 @@ class emulator:
         outputs = np.concatenate((np.array(outputs[:,:3]), np.array(outputs[:,n_min-3:n_max-2])), axis=1)
 
         return outputs
-    
+
+
+    def predict_v2(self, input_data, n_present=[n for n in range(6,41)], verbose=False):
+        
+        log_inputs_mean = np.array(self.emulator_dict["data_scaling"]["inp_mean"][0])
+        
+        log_inputs_std = np.array(self.emulator_dict["data_scaling"]["inp_std"][0])
+
+        log_outputs_mean = np.array(self.emulator_dict["data_scaling"]["classical_out_mean"][0] + self.emulator_dict["data_scaling"]["astero_out_mean"][0])
+        
+        log_outputs_std = np.array(self.emulator_dict["data_scaling"]["classical_out_std"][0] + self.emulator_dict["data_scaling"]["astero_out_std"][0])
+        
+        log_inputs = np.log10(input_data)
+        
+        standardised_log_inputs = (log_inputs - log_inputs_mean)/log_inputs_std
+
+        standardised_log_outputs = self.model(standardised_log_inputs)
+
+        standardised_log_outputs = np.concatenate((np.array(standardised_log_outputs[0]),np.array(standardised_log_outputs[1])), axis=1)
+
+        log_outputs = (standardised_log_outputs*log_outputs_std) + log_outputs_mean
+
+        outputs = 10**log_outputs
+
+        outputs[:,2] = log_outputs[:,2] ##we want star_feh in dex
+
+        # def calc_Teff(luminosity, radius):
+        #     return np.array(((luminosity.values*astropy.constants.L_sun) / (4*np.pi*constants.sigma*((radius.values*astropy.constants.R_sun)**2)))**0.25)
+
+
+        teff = np.array(((outputs[:,1]*astropy.constants.L_sun) / (4*np.pi*constants.sigma*((outputs[:,0]*astropy.constants.R_sun)**2)))**0.25)
+        
+        outputs[:,0] = teff
+
+        freqs_present = [outputs[:,n_idx-3].tolist() for n_idx in n_present]
+
+        outputs = np.concatenate((np.array(outputs[:,:3]), np.array(freqs_present).T), axis=1)
+
+        return outputs
 
 class ultra_ns_vector_surface():
     def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, nu_max, n_min=6, n_max=40, logl_scale = 1):
@@ -321,4 +359,61 @@ class ultra_ns_popwalk():
         tf.keras.backend.clear_session()
         gc.collect()
 
+
+class ultra_ns_vector_surface_v2():
+    def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, nu_max, n_present=[n for n in range(6,41)], logl_scale = 1):
+        self.priors = priors
+        self.obs_val = observed_vals
+        self.ndim = len(priors)
+        self.pitchfork = pitchfork
+        self.logl_scale = logl_scale
+        self.logl_factor = -(len(observed_vals)*0.5*np.log(2*np.pi))-(0.5*log_sigma_det)
+        self.sigma_inv = sigma_inv
+        self.n_present = n_present
+        self.nu_max = nu_max
+    
+    def ptform(self, u):
+
+        theta = np.array([self.priors[i].ppf(u[:,i]) for i in range(self.ndim)]).T
+        return theta
+
+    def surf_corr(self, freqs, a, b):
+        return freqs + a*((freqs/self.nu_max)**b)      
+    
+    def logl(self, theta):
+
+        m = self.pitchfork.predict_v2(theta[:,:-2], n_present=self.n_present)
+
+        a_arr = np.expand_dims(theta[:,-2],1)
+
+        b_arr = np.expand_dims(theta[:,-1],1)
+        
+        m[:,3:] = self.surf_corr(m[:,3:],a_arr, b_arr)
+        
+        
+        residual_matrix = np.matrix(m-self.obs_val)
+
+        ll = self.logl_factor-0.5*np.einsum('ij, jk, ik->i', residual_matrix, self.sigma_inv, residual_matrix)
+
+        return self.logl_scale * ll
+
+    def __call__(self, ndraw_min, ndraw_max, draw_multiple=True):
+
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+            gc.collect()
+
+        
+        self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age','a','b'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max, draw_multiple=draw_multiple)
+        
+        return self.sampler
+
+    def cleanup(self):
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+        if hasattr(self, 'pitchfork'):
+            del self.pitchfork
+
+        tf.keras.backend.clear_session()
+        gc.collect()
 
