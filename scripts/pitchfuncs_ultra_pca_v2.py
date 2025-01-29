@@ -88,9 +88,9 @@ def WMSE_metric(y_true, y_pred):
 
 
 class emulator:
-    def __init__(self, emulator_name):
+    def __init__(self, emulator_name, file_path='pitchfork/'):
         self.emulator_name = emulator_name
-        self.file_path = "pitchfork/"+ self.emulator_name
+        self.file_path = file_path + self.emulator_name
         
         with open(self.file_path+".pkl", 'rb') as fp:
              self.emulator_dict = pickle.load(fp)
