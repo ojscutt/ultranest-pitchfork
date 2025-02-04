@@ -234,6 +234,65 @@ class ultra_ns_vector_surface():
         tf.keras.backend.clear_session()
         gc.collect()
 
+class ultra_ns_vector_surface_path():
+    def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, nu_max, n_min=6, n_max=40, logl_scale = 1):
+        self.priors = priors
+        self.obs_val = observed_vals
+        self.ndim = len(priors)
+        self.pitchfork = pitchfork
+        self.logl_scale = logl_scale
+        self.logl_factor = -(len(observed_vals)*0.5*np.log(2*np.pi))-(0.5*log_sigma_det)
+        self.sigma_inv = sigma_inv
+        self.n_min = n_min
+        self.n_max = n_max
+        self.nu_max = nu_max
+        self.matmul_path = np.einsum_path('ij, jk, ik->i', np.matrix(observed_vals), sigma_inv, np.matrix(observed_vals), optimize='optimal')[0]
+    
+    def ptform(self, u):
+
+        theta = np.array([self.priors[i].ppf(u[:,i]) for i in range(self.ndim)]).T
+        return theta
+
+    def surf_corr(self, freqs, a, b):
+        return freqs + a*((freqs/self.nu_max)**b)      
+    
+    def logl(self, theta):
+
+        m = self.pitchfork.predict(theta[:,:-2], n_min=self.n_min, n_max=self.n_max)
+
+        a_arr = np.expand_dims(theta[:,-2],1)
+
+        b_arr = np.expand_dims(theta[:,-1],1)
+        
+        m[:,3:] = self.surf_corr(m[:,3:],a_arr, b_arr)
+        
+        
+        residual_matrix = np.matrix(m-self.obs_val)
+
+        ll = self.logl_factor-0.5*np.einsum('ij, jk, ik->i', residual_matrix, self.sigma_inv, residual_matrix, optimize=self.matmul_path)
+
+        return self.logl_scale * ll
+
+    def __call__(self, ndraw_min, ndraw_max, draw_multiple=True):
+
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+            gc.collect()
+
+        
+        self.sampler = ultranest.ReactiveNestedSampler(['initial_mass', 'initial_Zinit', 'initial_Yinit', 'initial_MLT', 'star_age','a','b'], self.logl, self.ptform, vectorized=True, ndraw_min=ndraw_min, ndraw_max=ndraw_max, draw_multiple=draw_multiple)
+        
+        return self.sampler
+
+    def cleanup(self):
+        if hasattr(self, 'sampler') and self.sampler is not None:
+            del self.sampler
+        if hasattr(self, 'pitchfork'):
+            del self.pitchfork
+
+        tf.keras.backend.clear_session()
+        gc.collect()
+
 
 class ultra_ns_popslice():
     def __init__(self, priors, observed_vals, pitchfork, log_sigma_det, sigma_inv, nu_max, n_min=6, n_max=40, logl_scale = 1):
